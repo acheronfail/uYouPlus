@@ -1,4 +1,67 @@
 #import "uYouPlusPatches.h"
+#import <objc/runtime.h>
+#import <objc/message.h>
+
+// uYou sets the speed title, but YouTube 21.39.4 lays out its UIButtonLabel
+// with zero width. Draw the existing title in the transport control instead.
+static const void *uYouSpeedLabelKey = &uYouSpeedLabelKey;
+static void (*uYouOriginalUpdatePlaybackRate)(id, SEL);
+
+static void uYouFixPlaybackRateLabel(id owner) {
+    SEL getter = @selector(resetPlaybackRateButtonView);
+    if (![owner respondsToSelector:getter]) return;
+    UIView *container = ((id (*)(id, SEL))objc_msgSend)(owner, getter);
+    if (!container) return;
+
+    UIButton *button = nil;
+    for (UIView *child in container.subviews) {
+        if ([child isKindOfClass:[UIButton class]]) {
+            button = (UIButton *)child;
+            break;
+        }
+    }
+    NSString *title = [button titleForState:UIControlStateNormal];
+    if (!title.length) return;
+
+    UILabel *label = objc_getAssociatedObject(container, uYouSpeedLabelKey);
+    if (!label || label.superview != container) {
+        label = [[UILabel alloc] initWithFrame:container.bounds];
+        label.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        label.backgroundColor = [UIColor clearColor];
+        label.textAlignment = NSTextAlignmentCenter;
+        label.font = [UIFont systemFontOfSize:12 weight:UIFontWeightSemibold];
+        label.adjustsFontSizeToFitWidth = YES;
+        label.minimumScaleFactor = 0.7;
+        label.userInteractionEnabled = NO;
+        [container addSubview:label];
+        objc_setAssociatedObject(container, uYouSpeedLabelKey, label, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    label.frame = container.bounds;
+    label.text = title;
+    label.textColor = button.currentTitleColor ?: [UIColor whiteColor];
+    [container bringSubviewToFront:label];
+    button.titleLabel.hidden = YES;
+}
+
+static void uYouUpdatePlaybackRateWithLabel(id owner, SEL selector) {
+    uYouOriginalUpdatePlaybackRate(owner, selector);
+    uYouFixPlaybackRateLabel(owner);
+}
+
+static void uYouInstallPlaybackRateLabelFix(NSUInteger attempt) {
+    Class cls = objc_getClass("YTMainAppControlsOverlayView");
+    SEL selector = @selector(updatePlaybackRate);
+    Method method = cls ? class_getInstanceMethod(cls, selector) : NULL;
+    char returnType[8] = {0};
+    if (method) method_getReturnType(method, returnType, sizeof(returnType));
+    if (method && method_getNumberOfArguments(method) == 2 && returnType[0] == 'v') {
+        MSHookMessageEx(cls, selector, (IMP)uYouUpdatePlaybackRateWithLabel, (IMP *)&uYouOriginalUpdatePlaybackRate);
+    } else if (attempt < 3) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+            uYouInstallPlaybackRateLabelFix(attempt + 1);
+        });
+    }
+}
 
 # pragma mark - YouTube patches
 
@@ -252,6 +315,9 @@ static void refreshUYouAppearance() {
 
 %ctor {
     %init;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+        uYouInstallPlaybackRateLabelFix(1);
+    });
     // if (@available(iOS 16, *)) {
     //     %init(iOS16);
     // }
