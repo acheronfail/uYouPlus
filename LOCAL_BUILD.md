@@ -1,6 +1,6 @@
 # Local build on macOS
 
-This project needs Xcode, Homebrew, Theos, theos-jailed, and the patched iOS 16.5 SDK. The commands below keep the toolchain in the ignored `.build-tools/` directory. The YouTube IPA stays local and is ignored by Git.
+This project needs Xcode, Homebrew, Theos, theos-jailed, the patched iOS 16.5 SDK, Meson, and Ninja. The commands below keep the toolchain in the ignored `.build-tools/` directory. The YouTube IPA stays local and is ignored by Git.
 
 From the repository root, run once:
 
@@ -17,6 +17,8 @@ git -C .build-tools/sdk-source checkout
 mv .build-tools/sdk-source/iPhoneOS16.5.sdk .build-tools/theos/sdks/
 git clone --recursive https://github.com/qnblackcat/theos-jailed.git .build-tools/theos-jailed
 THEOS="$PWD/.build-tools/theos" .build-tools/theos-jailed/install
+python3 -m venv .build-tools/decoder-venv
+.build-tools/decoder-venv/bin/pip install meson ninja
 ```
 
 Put a decrypted `YouTube.ipa` at the repository root, then build:
@@ -25,6 +27,6 @@ Put a decrypted `YouTube.ipa` at the repository root, then build:
 ./build-local.sh
 ```
 
-You can pass another IPA path as the first argument. The script reads its YouTube version, builds incrementally, and writes the result to `packages/`. To keep a diagnostic log, run `./build-local.sh > .build-tools/local-build.log 2>&1`.
+You can pass another IPA path as the first argument. The script reads its YouTube version, builds YTUHD's libvpx and dav1d libraries when their pinned source revisions change, builds the app incrementally, and writes the result to `packages/`. To keep a diagnostic log, run `./build-local.sh > .build-tools/local-build.log 2>&1`.
 
 The Makefile sets `CODESIGN_IPA = 0`; sign the generated IPA with your installation method before installing it on a device.

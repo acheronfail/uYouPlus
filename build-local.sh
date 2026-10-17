@@ -8,6 +8,9 @@ ipa=${1:-"$repo_dir/YouTube.ipa"}
 
 export THEOS="$repo_dir/.build-tools/theos"
 export PATH="$(brew --prefix make)/libexec/gnubin:$PATH"
+if [[ -d "$repo_dir/.build-tools/decoder-venv/bin" ]]; then
+    export PATH="$repo_dir/.build-tools/decoder-venv/bin:$PATH"
+fi
 logos_ref=31d2271046810dacedcbcd92b7780ec5da600e96
 
 if [[ ! -d "$THEOS/sdks/iPhoneOS16.5.sdk" ]]; then
@@ -34,9 +37,24 @@ print(info["CFBundleVersion"])
 PY
 )
 
+ytuhd_root="$repo_dir/Tweaks/YTUHD"
+for decoder in libvpx dav1d; do
+    source_ref=$(git -C "$ytuhd_root/vendor/$decoder" rev-parse HEAD)
+    build_dir="$ytuhd_root/vendor/${decoder}_ios"
+    library="$build_dir/lib${decoder}.a"
+    stamp="$build_dir/.source-rev"
+    if [[ ! -f "$library" || ! -f "$stamp" || "$(cat "$stamp")" != "$source_ref" ]]; then
+        "$ytuhd_root/vendor/build_${decoder}.sh"
+        printf '%s\n' "$source_ref" > "$stamp"
+    fi
+done
+
 mkdir -p "$THEOS/lib/iphone/rootless"
-make package THEOS_PACKAGE_SCHEME=rootless "IPA=$ipa" FINALPACKAGE=1 \
+make package THEOS_PACKAGE_SCHEME=rootless SIDELOAD=1 "IPA=$ipa" FINALPACKAGE=1 \
     "YOUTUBE_VERSION=$youtube_version" "UYOU_VERSION=${UYOU_VERSION:-3.0.4}" \
+    "LIBVPX_BUILD=$ytuhd_root/vendor/libvpx_ios" \
+    "DAV1D_BUILD=$ytuhd_root/vendor/dav1d_ios" \
+    "YTUHD_CFLAGS=-fobjc-arc -I$ytuhd_root/vendor/libvpx -I$ytuhd_root/vendor/libvpx_ios -I$ytuhd_root/vendor/dav1d/include -I$ytuhd_root/vendor/dav1d_ios/install/include" \
     "ADDITIONAL_XCODEOPTS=-derivedDataPath $repo_dir/.build-tools/DerivedData"
 
 echo "Built IPA in $repo_dir/packages"
