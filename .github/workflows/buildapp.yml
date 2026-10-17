@@ -17,8 +17,8 @@ on:
         required: false
         type: string
       decrypted_youtube_url:
-        description: "Direct URL to the decrypted YouTube ipa. The version of YouTube will be detected automatically."
-        default: ""
+        description: "Public Google Drive share link or direct HTTPS URL for a decrypted YouTube IPA."
+        default: "https://drive.google.com/file/d/1e9FXrX73j0ddNqijOihGqzHf4Cu4QtNS/view?usp=drive_link"
         required: true
         type: string
       bundle_id:
@@ -32,13 +32,13 @@ on:
         required: true
         type: string
       create_release:
-        description: "Create a draft release"
-        default: true
+        description: "Create a draft release containing the IPA"
+        default: false
         required: false
         type: boolean
       upload_artifact:
-        description: "Upload Artifact"
-        default: false
+        description: "Upload the IPA as a workflow artifact"
+        default: true
         required: false
         type: boolean
 
@@ -49,7 +49,7 @@ concurrency:
 jobs:
   build:
     name: Build uYouPlus
-    runs-on: macos-13
+    runs-on: macos-15-intel
     permissions:
       contents: write
 
@@ -118,14 +118,21 @@ jobs:
       - name: Prepare YouTube iPA
         id: prepare_youtube
         run: |
-          wget "$YOUTUBE_URL" --no-verbose -O main/YouTube.ipa
-          cd ${{ github.workspace }}/main
-          mv YouTube.ipa YouTube.zip
-          unzip -q YouTube.zip
-          youtube_version=$(defaults read "$(pwd)/Payload/YouTube.app/Info" CFBundleVersion)
-          echo "==> YouTube v$youtube_version downloaded!"
-          sed -i '' "17s#.*#YOUTUBE_VERSION = ${youtube_version}#g" Makefile
-          echo "youtube_version=${youtube_version}" >> $GITHUB_OUTPUT
+          if [[ "$YOUTUBE_URL" == https://drive.google.com/* ]]; then
+            python3 -m venv "$RUNNER_TEMP/gdown-venv"
+            "$RUNNER_TEMP/gdown-venv/bin/python" -m pip install --disable-pip-version-check gdown
+            "$RUNNER_TEMP/gdown-venv/bin/gdown" "$YOUTUBE_URL" -O main/YouTube.ipa
+          else
+            curl --fail --location --silent --show-error "$YOUTUBE_URL" --output main/YouTube.ipa
+          fi
+          cd main
+          unzip -tq YouTube.ipa
+          unzip -q YouTube.ipa
+          test -f Payload/YouTube.app/Info.plist
+          youtube_version=$(plutil -extract CFBundleVersion raw -o - Payload/YouTube.app/Info.plist)
+          test -n "$youtube_version"
+          echo "YouTube version: $youtube_version"
+          echo "youtube_version=$youtube_version" >> "$GITHUB_OUTPUT"
 
         env:
           THEOS: ${{ github.workspace }}/theos
@@ -135,18 +142,21 @@ jobs:
         id: build_package
         run: |
           mkdir -p theos/lib/iphone/rootless
-          cd ${{ github.workspace }}/main
-          sed -i '' "27s#.*#BUNDLE_ID = ${{ env.BUNDLE_ID }}#g" Makefile
-          sed -i '' "26s#.*#DISPLAY_NAME = ${{ env.APP_NAME }}#g" Makefile
-          make package THEOS_PACKAGE_SCHEME=rootless IPA=Payload/YouTube.app FINALPACKAGE=1
-          echo "package=$(ls -t packages | head -n1)" >>$GITHUB_OUTPUT
-          echo -e "==> \033[1mSHASUM256: $(shasum -a 256 packages/*.ipa | cut -f1 -d' ')\033[0m"
-          echo -e "==> \033[1mBundle ID: ${{ env.BUNDLE_ID }}\033[0m"
+          cd main
+          make package THEOS_PACKAGE_SCHEME=rootless IPA=Payload/YouTube.app FINALPACKAGE=1 \
+            "YOUTUBE_VERSION=$YOUTUBE_VERSION" "UYOU_VERSION=$UYOU_VERSION" \
+            "BUNDLE_ID=$BUNDLE_ID" "DISPLAY_NAME=$APP_NAME"
+          package=$(find packages -maxdepth 1 -name '*.ipa' -type f -print -quit)
+          test -n "$package"
+          echo "package=$package" >> "$GITHUB_OUTPUT"
+          shasum -a 256 "$package"
+          echo "Bundle ID: $BUNDLE_ID"
 
         env:
           THEOS: ${{ github.workspace }}/theos
           UYOU_VERSION: ${{ inputs.uyou_version }}
           UYOU_URL: ${{ inputs.uyou_url }}
+          YOUTUBE_VERSION: ${{ steps.prepare_youtube.outputs.youtube_version }}
           BUNDLE_ID: ${{ inputs.bundle_id }}
           APP_NAME: ${{ inputs.app_name }}
 
@@ -158,10 +168,11 @@ jobs:
           YOUTUBE_VERSION: ${{ steps.prepare_youtube.outputs.youtube_version }}
         with:
           name: uYouPlus_${{ env.YOUTUBE_VERSION }}_${{ env.UYOU_VERSION }}
-          path: ${{ github.workspace }}/main/packages/${{ steps.build_package.outputs.package }}
+          path: ${{ github.workspace }}/main/${{ steps.build_package.outputs.package }}
           if-no-files-found: error
 
       - name: Create Release
+        if: ${{ inputs.create_release }}
         id: create_release
         uses: qnblackcat/action-gh-release@master
         env:
