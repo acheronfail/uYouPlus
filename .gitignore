@@ -8,3 +8,4 @@ Tweaks/uYou/*
 Resources/
 *.ipa
 .vscode
+.build-tools/

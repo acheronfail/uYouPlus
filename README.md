@@ -276,3 +276,5 @@ See [FAQs - Wiki](https://github.com/qnblackcat/uYouPlus/wiki/FAQs).
 ## Building
 
 See [Building - Wiki](https://github.com/qnblackcat/uYouPlus/wiki/Building).
+
+For a local incremental build on macOS, see [LOCAL_BUILD.md](LOCAL_BUILD.md).

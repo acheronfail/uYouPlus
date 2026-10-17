@@ -60,21 +60,6 @@ jobs:
           path: main
           submodules: recursive
 
-      - name: Fix pinned Return YouTube Dislikes source for current Logos
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          source = Path('main/Tweaks/Return-YouTube-Dislikes/Settings.x')
-          original = '    NSMutableArray *mutableCategories = %orig.mutableCopy;'
-          replacement = ('    NSArray *categories = %orig;\n'
-                         '    NSMutableArray *mutableCategories = categories.mutableCopy;')
-          text = source.read_text()
-          if text.count(original) != 1:
-              raise SystemExit('Expected pinned Return YouTube Dislikes source was not found')
-          source.write_text(text.replace(original, replacement))
-          PY
-
       - name: Caching brew dependencies
         id: brew_cache
         uses: tecolicom/actions-use-homebrew-tools@v1.2
@@ -96,6 +81,11 @@ jobs:
           ref: master
           path: theos
           submodules: recursive
+
+      - name: Pin Logos for this archived tweak source
+        run: |
+          git -C theos/vendor/logos fetch --depth=1 origin 31d2271046810dacedcbcd92b7780ec5da600e96
+          git -C theos/vendor/logos checkout --detach 31d2271046810dacedcbcd92b7780ec5da600e96
 
       - name: Caching SDK
         id: SDK
